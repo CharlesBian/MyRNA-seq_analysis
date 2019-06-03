@@ -1,0 +1,186 @@
+---
+title: "RNA-seq_DE-analysis"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## GitHub Documents
+
+This is an R Markdown format used for publishing markdown documents to GitHub. When you click the **Knit** button all R code chunks are run and a markdown file (.md) suitable for publishing to GitHub is generated.
+## Library the packages
+```{r echo=FALSE}
+library("openxlsx")
+library("limma")
+library("DESeq2")
+library("edgeR")
+library("ggplot2")
+library("Cairo")
+library("dplyr")
+library(VennDiagram)
+```
+
+
+## Data Input: RNA-seq raw datas
+
+```{r}
+rna_seq_data0 <- read.xlsx(file.choose())
+```
+## Data Input: GeneName
+```{r}
+Genename <- read.xlsx(file.choose())
+```
+
+
+## Data handling
+```{r echo=FALSE}
+rna_seq_data <- merge(rna_seq_data0,Genename,by.x="gene_id",by.y="ENTREZ_GENE_ID",all.x = TRUE)
+sum(is.na(rna_seq_data$symbol))
+colnamber<-ncol(rna_seq_data)-1
+colnamber
+countdata<- as.matrix(floor(rna_seq_data[1:nrow(rna_seq_data),4:colnamber]))
+countdata <- subset(countdata,select=c(1,2,5,6))
+condition <- as.factor(c(rep("sh1",2),rep("Ctrl",2)))
+col_data <-data.frame(row.names = colnames(countdata),
+                      group_list=condition)
+```
+
+## DESeq2
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = countdata,
+                              colData = col_data,
+                              design = ~group_list)
+
+rownames(dds)<-rna_seq_data$gene_id
+dds2 <- DESeq(dds)
+rld <- rlogTransformation(dds2)
+exprSet = assay(rld)
+
+boxplot(countdata)
+boxplot(exprSet)
+```
+
+## DESeq2 pvalue
+```{r}
+resultsNames(dds2)
+res <- results(dds2)
+res_ordered <- as.data.frame(res[order(res$padj),])
+head(res$padj)
+```
+
+## DESeq2 log2Foldchange
+```{r}
+head(res$log2FoldChange)
+```
+
+## volcanoplot data handling
+```{r}
+res_ordered$threshold <- as.factor(ifelse(res_ordered$pvalue<0.05&abs(res_ordered$log2FoldChange)>=1,
+                                            ifelse(res_ordered$log2FoldChange>1,"Up","Down"),"Not"))
+
+downname <- head(subset(res_ordered,threshold=="Down"),13)  #subset the important gene
+
+name <- subset(rna_seq_data,gene_id==rownames(downname))
+
+sum(is.na(rna_seq_data$symbol))
+upname <- head(subset(res_ordered,threshold=="Up"),13)  #subset the important gene
+
+dename <- subset(res_ordered,pvalue<0.05&threshold!="Not")
+```
+
+## volcano plot
+```{r}
+ggplot(res_ordered,
+       aes(x=res_ordered$log2FoldChange,
+           y=-log10(res_ordered$pvalue),
+           colour = threshold))+
+  scale_color_manual(values=c("skyblue","grey","red"))+
+  geom_point(size = 2.5)+
+  xlim(c(-4,4))+
+  ylab("-log10 p-value")+
+  xlab("log2 fold change")+
+  labs(title="Volcano of CBSsh")+
+  geom_vline(xintercept = c(-1,1),lty=4,col="black",lwd=0.6)+
+  geom_hline(yintercept = -log10(0.05),lty=4,col="black",lwd=0.6)+
+  theme(legend.position = "right",
+        panel.grid = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_text(face = "bold",color = "black",size = 12),
+        plot.title = element_text(hjust = 0.5))+
+  annotate(geom ="text",
+           x=downname$log2FoldChange,
+           y=-log10(downname$pvalue),
+           label=rownames(downname),
+           size = 2.3)+
+  annotate(geom ="text",
+           x=upname$log2FoldChange,
+           y=-log10(upname$pvalue),
+           label=rownames(upname),
+           size = 2.3)
+
+```
+
+## Data Input 
+```{r}
+venn1 <- read.xlsx(file.choose())
+venn2 <- read.xlsx(file.choose())
+venn3 <- read.xlsx(file.choose())
+```
+
+## venndiagram
+```{r}
+venn.diagram(list(list1 =venn1$gene_id, list2=venn2$geneid),
+             filename = "1_1.tif",
+             col = "transparent",
+             fill = c("cornflowerblue","darkorchid1"),
+             label.col = "black",
+             cat.col = c("blue","red"),
+             cat.dist = c(0.03,0.03),
+             cat.pos = c(-8,8),
+             cat.cex = 1.5,
+             cex = 2,
+             main = "venn plot of DE genes",
+             main.cex = 2)
+```
+
+## GO-analysis
+```{r}
+library("DOSE")
+library("clusterProfiler")
+ego3 <- enrichGO(gene = c$GENE.ID,
+                 OrgDb = "org.Mm.eg.db",
+                 ont = "CC",
+                 pvalueCutoff = 0.05,
+                 readable = TRUE)
+summary(as.data.frame(ego))
+```
+
+## KEGG-analysis
+```{r}
+ekk <- enrichKEGG(gene =c$GENE.ID,
+                  organism = "mmu",
+                  pvalueCutoff = 0.05,
+                  pAdjustMethod = "BH",
+                  use_internal_data = TRUE)
+```
+
+##Pathview
+```{r}
+require("pathview")
+pathview(gene.data = c[,2],
+         gene.idtype = "entrez",
+         pathway.id = ekk,
+         species = "mmu",
+         # limit = list(gene = max(log2(LH_data$`Act.HSC.vs.qHSC.(Fold)`)),cpd = 1),
+         bins = list(gene = 10,cpd=10),
+         out.suffix = "LH_pathview_1",
+         kegg.native = TRUE)
+```
+
+
+
+
+
+
